@@ -160,9 +160,26 @@ def main():
     urls = [IMAGE_BASE + urllib.parse.quote(p) for p in entry["images"]]
 
     if DRY:
+        print(f"::notice::Connected to Facebook Page '{page_name}' and Instagram @{ig.get('username')}")
+        try:
+            info = call("GET", "debug_token", token, input_token=token).get("data", {})
+            exp = info.get("expires_at", 0)
+            if exp:
+                days = (exp - time.time()) / 86400
+                when = dt.datetime.fromtimestamp(exp, GULF).strftime("%d %b %Y")
+                print(f"::notice::Meta token expires {when} ({days:.0f} days left)")
+                if days < 3:
+                    sys.exit(f"::error::Meta token expires in {days * 24:.1f} hours. Use 'Extend Access Token' and save the long token as META_TOKEN.")
+            else:
+                print("::notice::Meta token never expires")
+        except GraphError as e:
+            print("  could not read token expiry:", e)
+        bad = 0
         for u in urls:
             ok, info = url_ok(u)
+            bad += not ok
             print(f"  photo {'OK ' if ok else 'BAD'} {info}  {u}")
+        print(f"::notice::Photo links: {len(urls) - bad} of {len(urls)} reachable")
         try:
             lim = call("GET", f"{IG_USER_ID}/content_publishing_limit", pt, fields="quota_usage,config")
             print("  Instagram publishing quota:", json.dumps(lim.get("data", lim)))
@@ -178,7 +195,7 @@ def main():
         try:
             post_id, fb_cdn = post_facebook(pt, entry, urls)
             done["facebook"] = {"id": post_id, "at": dt.datetime.now(dt.timezone.utc).isoformat()}
-            print(f"  Facebook posted: https://facebook.com/{post_id}")
+            print(f"::notice::Facebook posted: https://facebook.com/{post_id}")
         except GraphError as e:
             failures.append(f"Facebook: {e}")
         json.dump(state, open(state_path, "w"), indent=1)
@@ -188,14 +205,14 @@ def main():
         try:
             mid, link = post_instagram(pt, entry, urls, fb_cdn)
             done["instagram"] = {"id": mid, "link": link, "at": dt.datetime.now(dt.timezone.utc).isoformat()}
-            print(f"  Instagram posted: {link}")
+            print(f"::notice::Instagram posted: {link}")
         except GraphError as e:
             failures.append(f"Instagram: {e}")
         json.dump(state, open(state_path, "w"), indent=1)
     else:
         print("  Instagram already posted earlier, skipping")
     if failures:
-        sys.exit("FAILED\n  " + "\n  ".join(failures))
+        sys.exit("::error::" + " / ".join(failures))
 
 
 if __name__ == "__main__":
