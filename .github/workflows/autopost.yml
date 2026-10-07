@@ -1,0 +1,46 @@
+name: Daily Instagram + Facebook post
+
+on:
+  schedule:
+    - cron: "0 17 * * *"    # 21:00 Gulf time (22:30 India)
+    - cron: "45 17 * * *"   # backup run; skips anything already posted
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Test only: check token, accounts and photos, post nothing"
+        type: boolean
+        default: true
+      day:
+        description: "Plan day to post (1-46). Leave blank for today's post"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post today's carousel
+        env:
+          META_TOKEN: ${{ secrets.META_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          FORCE_DAY: ${{ inputs.day }}
+        run: python3 autopost.py
+      - name: Save what was posted
+        if: always()
+        run: |
+          git config user.name "zius-autopost"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add posted.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Posted $(TZ=Asia/Dubai date +%F)"
+            git pull --rebase --quiet && git push
+          fi
